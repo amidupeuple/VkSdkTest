@@ -13,6 +13,7 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.util.Base64;
 import android.util.Log;
 import android.view.ContextMenu;
 import android.view.Gravity;
@@ -27,7 +28,12 @@ import android.widget.ImageView;
 import android.widget.TableLayout;
 import android.widget.TableRow;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import com.android.volley.AuthFailureError;
+import com.android.volley.NetworkResponse;
+import com.android.volley.VolleyError;
+import com.android.volley.toolbox.Volley;
 import com.vk.sdk.VKAccessToken;
 import com.vk.sdk.VKCallback;
 import com.vk.sdk.VKScope;
@@ -38,10 +44,24 @@ import com.vk.sdk.api.VKRequest;
 import com.vk.sdk.api.VKResponse;
 
 import org.json.JSONException;
+import org.json.JSONObject;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+
+import retrofit.Callback;
+import retrofit.RetrofitError;
+import retrofit.client.Response;
+import retrofit.mime.TypedFile;
 
 public class MainActivity extends Activity {
     private static final String TAG = "MainActivity";
@@ -54,9 +74,15 @@ public class MainActivity extends Activity {
 
     ArrayList<String> imageList = new ArrayList<String>();
     ArrayList<Drawable> imageDrawable = new ArrayList<Drawable>();
+    List<Bitmap> imageBitmap = new ArrayList<>();
     private String path = "";
     private Context context;
     private Activity activity;
+
+    private final String twoHyphens = "--";
+    private final String lineEnd = "\r\n";
+    private final String boundary = "apiclient-" + System.currentTimeMillis();
+    private final String mimeType = "multipart/form-data;boundary=" + boundary;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -115,8 +141,89 @@ public class MainActivity extends Activity {
                             Log.e(TAG, e.getMessage());
                         }
                         Log.d(TAG, "Upload url: " + uploadUrl);
+                        Log.d(TAG, "Photo: " + imageList.get(0));
+                        String path = "/sdcard/Download/Mr_Twinkle.jpg";
+                        File f = new File(path);
+                        f.exists();
+                        VKUploadService uploadService = ServiceGenerator.createService(VKUploadService.class, uploadUrl);
+                        TypedFile typedFile = new TypedFile("multipart/form-data", f);
 
+                        Uri uri = Uri.parse(uploadUrl);
+                        Set<String> queryParameterNames = uri.getQueryParameterNames();
+                        HashMap<String,String> queryMap = new HashMap<>();
+                        Iterator<String> iterator = queryParameterNames.iterator();
 
+                        while(iterator.hasNext()){
+                            String queryName = iterator.next();
+                            String queryParameter = uri.getQueryParameter(queryName);
+                            queryMap.put(queryName, queryParameter);
+                        }
+
+                        uploadService.upload(queryMap, typedFile, new Callback<JSONObject>() {
+                            @Override
+                            public void success(JSONObject jsonObject, Response response) {
+                                Log.d(TAG, "success");
+                            }
+
+                            @Override
+                            public void failure(RetrofitError error) {
+                                Log.e(TAG, error.getMessage());
+                            }
+                        });
+
+                        /*byte[] arr = convertBitmapToByteArr(imageBitmap.get(0));
+
+                        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                        DataOutputStream dos = new DataOutputStream(bos);
+                        try {
+                            dos.writeBytes(twoHyphens + boundary + lineEnd);
+                            dos.writeBytes("Content-Disposition: form-data; name=\"photo\"" + lineEnd);
+                            dos.writeBytes(lineEnd);
+
+                            ByteArrayInputStream fileInputStream = new ByteArrayInputStream(arr);
+                            int bytesAvailable = fileInputStream.available();
+
+                            int maxBufferSize = 1024 * 1024;
+                            int bufferSize = Math.min(bytesAvailable, maxBufferSize);
+                            byte[] buffer = new byte[bufferSize];
+
+                            int bytesRead = fileInputStream.read(buffer, 0, bufferSize);
+
+                            while (bytesRead > 0) {
+                                dos.write(buffer, 0, bufferSize);
+                                bytesAvailable = fileInputStream.available();
+                                bufferSize = Math.min(bytesAvailable, maxBufferSize);
+                                bytesRead = fileInputStream.read(buffer, 0, bufferSize);
+                            }
+
+                            dos.writeBytes(lineEnd);
+                            dos.writeBytes(twoHyphens + boundary + twoHyphens + lineEnd);
+                        } catch (IOException e) {
+                            Log.e(TAG, e.getMessage());
+                        }
+
+                        MultipartRequest multipartRequest = new MultipartRequest(uploadUrl, null, mimeType, bos.toByteArray(), new com.android.volley.Response.Listener<NetworkResponse>() {
+
+                            @Override
+                            public void onResponse(NetworkResponse response) {
+                                Toast.makeText(context, "Upload successfully!", Toast.LENGTH_SHORT).show();
+                                Log.d(TAG, "##SucResponse: " + new String(response.data));
+                            }
+                        }, new com.android.volley.Response.ErrorListener(){
+
+                            @Override
+                            public void onErrorResponse(VolleyError error) {
+                                Toast.makeText(context, "Upload failed!\r\n" + error.toString(), Toast.LENGTH_SHORT).show();
+                                Log.e(TAG, "##Response: " + new String(error.networkResponse.data));
+                            }
+                        });
+                        try {
+                            Log.d(TAG, "###Header: " + multipartRequest.getHeaders());
+                            Log.d(TAG, "###Body: " + new String(multipartRequest.getBody()));
+                        } catch (AuthFailureError authFailureError) {
+                            authFailureError.printStackTrace();
+                        }
+                        Volley.newRequestQueue(context).add(multipartRequest);*/
                     }
 
                     @Override
@@ -140,6 +247,21 @@ public class MainActivity extends Activity {
             }
         });
         VKSdk.login(activity, VKScope.PHOTOS);
+    }
+
+    private byte[] convertBitmapToByteArr(Bitmap bitmap) {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream);
+        byte[] byteArr = outputStream.toByteArray();
+        return byteArr;
+    }
+
+    private String convertImageToString(Bitmap bitmap) {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream);
+        byte[] byteArr = outputStream.toByteArray();
+        String encoded = Base64.encodeToString(byteArr, Base64.DEFAULT);
+        return encoded;
     }
 
     private void updateImageTable() {
@@ -283,6 +405,7 @@ public class MainActivity extends Activity {
             {
                 Bitmap bitmap = BitmapFactory.decodeFile(imageList.get(i).toString().trim());
                 bitmap = Bitmap.createScaledBitmap(bitmap,500, 500, true);
+                imageBitmap.add(bitmap);
                 Drawable d=loadImagefromurl(bitmap);
 
                 imageDrawable.add(d);
@@ -305,4 +428,5 @@ public class MainActivity extends Activity {
 
         return d;
     }
+
 }
